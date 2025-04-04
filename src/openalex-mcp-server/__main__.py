@@ -1,5 +1,5 @@
 """Main entry point for the openalex-mcp-server package."""
-from . import main
+from .server import start_server
 
 if __name__ == '__main__':
-    main()
+    start_server()
