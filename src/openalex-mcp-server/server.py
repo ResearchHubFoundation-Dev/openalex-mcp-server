@@ -12,11 +12,8 @@ import asyncio
 import aiohttp
 from typing import Dict, Any, List, Optional, Union
 from urllib.parse import quote
-from mcp.server import Server
-from mcp.server.models import InitializationOptions, ResourceTemplate
-from mcp.server import NotificationOptions
-from mcp.server.stdio import stdio_server
-from mcp.types import ContentItem, ResourceContents
+from mcp.server.fastmcp import FastMCP
+from mcp.types import TextContent, ResourceContents
 
 from .config import Settings
 
@@ -26,7 +23,10 @@ logger = logging.getLogger("openalex-mcp-server")
 logger.setLevel(getattr(logging, settings.LOG_LEVEL))
 
 # Create server instance
-server = Server(settings.APP_NAME)
+server = FastMCP(
+    name=settings.APP_NAME,
+    instructions="OpenAlex MCP server allows you to search and retrieve academic papers from the OpenAlex database."
+)
 
 # Helper function to format paper details
 def format_paper_details(paper: Dict[str, Any]) -> str:
@@ -217,7 +217,7 @@ def generate_search_summary(query: str, papers: List[Dict[str, Any]]) -> str:
     
     return f'# Search Results for: "{query}"\n\n' + "\n\n".join(summaries)
 
-@server.tool("search_papers")
+@server.tool(name="search_papers")
 async def search_papers_tool(query: str, limit: int = 10) -> Dict[str, Any]:
     """
     Search for papers matching the given query.
@@ -236,17 +236,17 @@ async def search_papers_tool(query: str, limit: int = 10) -> Dict[str, Any]:
         summary = generate_search_summary(query, papers)
         
         return {
-            "content": [{"type": "text", "text": summary}]
+            "content": [TextContent(text=summary)]
         }
     except Exception as e:
         error_message = str(e)
         logger.error(f"Error in search_papers_tool: {error_message}")
         return {
-            "content": [{"type": "text", "text": f"Error searching papers: {error_message}"}],
+            "content": [TextContent(text=f"Error searching papers: {error_message}")],
             "isError": True
         }
 
-@server.tool("search_papers_by_author")
+@server.tool(name="search_papers_by_author")
 async def search_papers_by_author(author: str, limit: int = 10) -> Dict[str, Any]:
     """
     Search for papers by a specific author.
@@ -267,17 +267,17 @@ async def search_papers_by_author(author: str, limit: int = 10) -> Dict[str, Any
         summary = generate_search_summary(f"Papers by {author}", papers)
         
         return {
-            "content": [{"type": "text", "text": summary}]
+            "content": [TextContent(text=summary)]
         }
     except Exception as e:
         error_message = str(e)
         logger.error(f"Error in search_papers_by_author: {error_message}")
         return {
-            "content": [{"type": "text", "text": f"Error searching papers by author: {error_message}"}],
+            "content": [TextContent(text=f"Error searching papers by author: {error_message}")],
             "isError": True
         }
 
-@server.tool("get_paper")
+@server.tool(name="get_paper")
 async def get_paper(paper_id: str) -> Dict[str, Any]:
     """
     Get detailed information about a specific paper.
@@ -322,34 +322,33 @@ async def get_paper(paper_id: str) -> Dict[str, Any]:
                 paper_details = format_paper_details(paper)
                 
                 return {
-                    "content": [{"type": "text", "text": paper_details}]
+                    "content": [TextContent(text=paper_details)]
                 }
     except asyncio.TimeoutError:
         error_message = "Request timeout: The OpenAlex API took too long to respond"
         logger.error(error_message)
         return {
-            "content": [{"type": "text", "text": error_message}],
+            "content": [TextContent(text=error_message)],
             "isError": True
         }
     except Exception as e:
         error_message = str(e)
         logger.error(f"Error in get_paper: {error_message}")
         return {
-            "content": [{"type": "text", "text": f"Error fetching paper: {error_message}"}],
+            "content": [TextContent(text=f"Error fetching paper: {error_message}")],
             "isError": True
         }
 
-# Define paper resource template for accessing individual papers
-@server.resource("paper", ResourceTemplate("paper://{paper_id}"))
-async def paper_resource(uri: str, params: Dict[str, str]) -> ResourceContents:
+# Define paper resource for accessing individual papers
+@server.resource(uri="paper://{paper_id}")
+async def paper_resource(paper_id: str) -> Dict[str, Any]:
     """Retrieve a paper as a resource by its ID"""
-    paper_id = params.get("paper_id")
     
     # Validate the paper_id format
     if not paper_id or not isinstance(paper_id, str):
         return ResourceContents(
             contents=[{
-                "uri": uri,
+                "uri": f"paper://{paper_id}",
                 "text": "Error: Invalid paper ID format",
                 "mime_type": "text/plain"
             }]
@@ -372,7 +371,7 @@ async def paper_resource(uri: str, params: Dict[str, str]) -> ResourceContents:
                 if response.status == 404:
                     return ResourceContents(
                         contents=[{
-                            "uri": uri,
+                            "uri": f"paper://{paper_id}",
                             "text": f"Paper not found: No paper exists with ID {clean_paper_id}",
                             "mime_type": "text/plain"
                         }]
@@ -391,7 +390,7 @@ async def paper_resource(uri: str, params: Dict[str, str]) -> ResourceContents:
                 
                 return ResourceContents(
                     contents=[{
-                        "uri": uri,
+                        "uri": f"paper://{paper_id}",
                         "text": paper_details,
                         "mime_type": "text/markdown"
                     }]
@@ -401,7 +400,7 @@ async def paper_resource(uri: str, params: Dict[str, str]) -> ResourceContents:
         logger.error(error_message)
         return ResourceContents(
             contents=[{
-                "uri": uri,
+                "uri": f"paper://{paper_id}",
                 "text": error_message,
                 "mime_type": "text/plain"
             }]
@@ -411,13 +410,13 @@ async def paper_resource(uri: str, params: Dict[str, str]) -> ResourceContents:
         logger.error(f"Error retrieving paper resource {clean_paper_id}: {error_message}")
         return ResourceContents(
             contents=[{
-                "uri": uri,
+                "uri": f"paper://{paper_id}",
                 "text": f"Error fetching paper: {error_message}",
                 "mime_type": "text/plain"
             }]
         )
 
-@server.prompt("find_papers_by_author")
+@server.prompt(name="find_papers_by_author")
 def find_papers_by_author_prompt(author_name: str, limit: Optional[int] = 10) -> Dict[str, Any]:
     """Generate a prompt to find papers by a specific author"""
     limit_val = min(max(1, limit or 10), 50)  # Ensure limit is between 1 and 50
@@ -432,7 +431,7 @@ def find_papers_by_author_prompt(author_name: str, limit: Optional[int] = 10) ->
         }]
     }
 
-@server.prompt("find_recent_papers")
+@server.prompt(name="find_recent_papers")
 def find_recent_papers_prompt(
     topic: str, 
     year_from: Optional[int] = None, 
@@ -463,18 +462,8 @@ def find_recent_papers_prompt(
 # Server initialization and startup
 def start_server():
     """Start the MCP server"""
-    server_options = InitializationOptions(
-        name=f"{settings.APP_NAME}",
-        version="1.0.0",
-        description="MCP server for accessing OpenAlex academic data",
-        notification_options=NotificationOptions(
-            show_tool_calls=True,
-            show_tool_errors=True
-        )
-    )
-    
     logger.info("Starting OpenAlex MCP Server...")
-    stdio_server(server, server_options)
+    server.run(transport='stdio')
     logger.info("OpenAlex MCP Server connected and running.")
 
 if __name__ == "__main__":
