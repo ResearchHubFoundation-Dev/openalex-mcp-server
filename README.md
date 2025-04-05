@@ -11,7 +11,7 @@ This server implements the Model Configuration Protocol (MCP) to connect AI assi
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/openalex-mcp-server.git
+git clone https://github.com/ResearchHub-Foundation/openalex-mcp-server
 cd openalex-mcp-server
 
 # Install dependencies
